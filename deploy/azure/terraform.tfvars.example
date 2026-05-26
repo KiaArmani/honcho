@@ -1,0 +1,49 @@
+# Copy to terraform.tfvars and edit for your environment.
+
+name        = "honcho"
+environment = "prod"
+location    = "swedencentral"
+
+# Required when using Honcho's built-in defaults:
+# llm_openai_api_key = "sk-..."
+
+# Optional direct provider keys:
+# llm_anthropic_api_key = "sk-ant-..."
+# llm_gemini_api_key    = "..."
+
+# If you already publish an image elsewhere, set it and disable local ACR build.
+# container_image           = "myregistry.azurecr.io/honcho:2026-05-25"
+# build_image_with_acr_task = false
+
+# To rebuild the local repo image with the same tag, change this token.
+# image_rebuild_token = "2026-05-25-1"
+
+# Cost/resilience defaults:
+# - Container Apps consumption keeps compute cost low.
+# - PostgreSQL uses B1ms to keep baseline cost low; switch to General Purpose
+#   before enabling HA.
+# - Redis uses Azure Managed Redis Balanced_B0 with Private Link; HA is off by default.
+# - ACR is Basic by default so first deploys can build/push without Premium-only networking.
+
+# Enable PostgreSQL HA when you are ready to pay for the extra standby.
+# postgres_sku_name = "GP_Standard_D2ds_v5"
+# postgres_high_availability_enabled = true
+
+# Enable Redis HA when you are ready to pay for the second cache node.
+# redis_high_availability_enabled = true
+
+# Enable geo-redundant backups if your region/compliance posture needs it.
+# postgres_geo_redundant_backup_enabled = true
+
+# Non-secret Honcho overrides. See .env.example for the full config surface.
+# honcho_env = {
+#   LOG_LEVEL = "INFO"
+#   DERIVER_WORKERS = "2"
+#   DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL = "gpt-5.4-mini"
+# }
+
+# Additional secret Honcho env values. These are stored as Container App secrets.
+# honcho_secret_env = {
+#   WEBHOOK_SECRET = "replace-me"
+#   VECTOR_STORE_TURBOPUFFER_API_KEY = "tpuf_..."
+# }

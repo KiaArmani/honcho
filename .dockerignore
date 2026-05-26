@@ -12,3 +12,8 @@ docker-compose.yml.example
 .vscode/**
 data/**
 .venv
+.terraform/
+*.tfvars
+*.tfvars.json
+*.tfstate
+*.tfstate.*

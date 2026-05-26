@@ -1,0 +1,37 @@
+# Dockerfile used by Azure Container Registry Tasks.
+# ACR Tasks currently run classic Docker builds, so avoid BuildKit-only mounts.
+FROM python:3.13-slim-bookworm
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.24 /uv /bin/uv
+
+WORKDIR /app
+
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+COPY uv.lock pyproject.toml /app/
+RUN uv sync --frozen --no-install-project --no-group dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV HOME=/app
+ENV UV_CACHE_DIR=/tmp/uv-cache
+
+RUN addgroup --system app \
+    && adduser --system --group app \
+    && mkdir -p /tmp/uv-cache \
+    && chown -R app:app /app /tmp/uv-cache
+
+COPY --chown=app:app src/ /app/src/
+COPY --chown=app:app migrations/ /app/migrations/
+COPY --chown=app:app scripts/ /app/scripts/
+COPY --chown=app:app docker/ /app/docker/
+COPY --chown=app:app alembic.ini /app/alembic.ini
+COPY --chown=app:app config.toml* /app/
+
+USER app
+
+EXPOSE 8000
+
+CMD ["fastapi", "run", "--host", "0.0.0.0", "src/main.py"]
