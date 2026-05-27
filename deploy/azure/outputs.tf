@@ -33,6 +33,56 @@ output "deriver_container_app_name" {
   value       = azurerm_container_app.deriver.name
 }
 
+output "mcp_container_app_name" {
+  description = "MCP Container App name."
+  value       = azurerm_container_app.mcp.name
+}
+
+output "mcp_url" {
+  description = "Public HTTPS URL for the Honcho MCP endpoint."
+  value = (
+    var.enable_mcp_custom_domain_binding
+    ? "https://${var.mcp_custom_domain_name}"
+    : "https://${azurerm_container_app.mcp.ingress[0].fqdn}"
+  )
+}
+
+output "mcp_default_url" {
+  description = "Default Azure Container Apps HTTPS URL for the Honcho MCP endpoint."
+  value       = "https://${azurerm_container_app.mcp.ingress[0].fqdn}"
+}
+
+output "mcp_custom_domain_url" {
+  description = "Target custom-domain HTTPS URL for the Honcho MCP endpoint."
+  value       = "https://${var.mcp_custom_domain_name}"
+}
+
+output "mcp_custom_domain_binding_enabled" {
+  description = "Whether the MCP Container Apps custom-domain binding resource is enabled."
+  value       = var.enable_mcp_custom_domain_binding
+}
+
+output "mcp_dns_records_managed" {
+  description = "Whether OpenTofu is configured to create the MCP Cloudflare DNS records."
+  value       = var.manage_mcp_dns_records
+}
+
+output "mcp_custom_domain_dns_records" {
+  description = "DNS records required before enabling the MCP managed custom-domain binding."
+  value = {
+    cname = {
+      type  = "CNAME"
+      name  = var.mcp_custom_domain_name
+      value = azurerm_container_app.mcp.ingress[0].fqdn
+    }
+    txt = {
+      type  = "TXT"
+      name  = "asuid.${var.mcp_custom_domain_name}"
+      value = nonsensitive(azurerm_container_app.mcp.custom_domain_verification_id)
+    }
+  }
+}
+
 output "postgres_server_name" {
   description = "PostgreSQL Flexible Server name."
   value       = azurerm_postgresql_flexible_server.main.name
@@ -57,4 +107,9 @@ output "create_admin_jwt_command" {
 output "manual_acr_build_command" {
   description = "Manual build command if build_image_with_acr_task is false."
   value       = "az acr build --registry ${azurerm_container_registry.honcho.name} --image honcho:${var.image_tag} ${local.repo_root}"
+}
+
+output "manual_mcp_acr_build_command" {
+  description = "Manual MCP build command if build_mcp_image_with_acr_task is false."
+  value       = "az acr build --registry ${azurerm_container_registry.honcho.name} --image honcho-mcp:${var.mcp_image_tag} --file ${local.repo_root}/mcp/Dockerfile ${local.repo_root}/mcp"
 }

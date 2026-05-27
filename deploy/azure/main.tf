@@ -26,6 +26,21 @@ locals {
     for file_name in sort(local.image_source_files) : filesha256("${local.repo_root}/${file_name}")
   ]))
 
+  mcp_source_files = distinct(concat(
+    tolist(fileset(local.repo_root, "mcp/src/**")),
+    [
+      "mcp/.dockerignore",
+      "mcp/Dockerfile",
+      "mcp/bun.lock",
+      "mcp/package.json",
+      "mcp/tsconfig.json",
+    ],
+  ))
+
+  mcp_source_hash = sha256(join("", [
+    for file_name in sort(local.mcp_source_files) : filesha256("${local.repo_root}/${file_name}")
+  ]))
+
   tags = merge(
     {
       application = "honcho"
@@ -60,6 +75,7 @@ locals {
   acr_name            = substr("acr${local.compact_prefix}${random_string.suffix.result}", 0, 50)
   api_app_name        = substr("${local.name_prefix}-api-${random_string.suffix.result}", 0, 32)
   deriver_app_name    = substr("${local.name_prefix}-deriver-${random_string.suffix.result}", 0, 32)
+  mcp_app_name        = substr("${local.name_prefix}-mcp-${random_string.suffix.result}", 0, 32)
   postgres_name       = substr("${local.name_prefix}-pg-${random_string.suffix.result}", 0, 63)
   redis_name          = substr("${local.name_prefix}-redis-${random_string.suffix.result}", 0, 60)
 
@@ -305,6 +321,7 @@ resource "azurerm_container_registry" "honcho" {
 
 locals {
   honcho_image = coalesce(var.container_image, "${azurerm_container_registry.honcho.login_server}/honcho:${var.image_tag}")
+  mcp_image    = coalesce(var.mcp_container_image, "${azurerm_container_registry.honcho.login_server}/honcho-mcp:${var.mcp_image_tag}")
 }
 
 resource "terraform_data" "acr_build" {
@@ -367,6 +384,66 @@ resource "terraform_data" "acr_build" {
   depends_on = [azurerm_container_registry.honcho]
 }
 
+resource "terraform_data" "mcp_acr_build" {
+  count = var.mcp_container_image == null && var.build_mcp_image_with_acr_task ? 1 : 0
+
+  triggers_replace = {
+    image_tag     = var.mcp_image_tag
+    rebuild_token = var.mcp_image_rebuild_token
+    source_hash   = local.mcp_source_hash
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -eu
+
+      for attempt in 1 2 3 4 5 6; do
+        if az acr show --resource-group ${azurerm_resource_group.main.name} --name ${azurerm_container_registry.honcho.name} >/dev/null 2>&1; then
+          break
+        fi
+
+        if [ "$attempt" = "6" ]; then
+          az acr show --resource-group ${azurerm_resource_group.main.name} --name ${azurerm_container_registry.honcho.name}
+        fi
+
+        sleep 10
+      done
+
+      for attempt in 1 2 3 4 5 6; do
+        build_log="$(mktemp)"
+
+        if az acr build \
+          --resource-group ${azurerm_resource_group.main.name} \
+          --registry ${azurerm_container_registry.honcho.name} \
+          --image honcho-mcp:${var.mcp_image_tag} \
+          --file ${abspath("${local.repo_root}/mcp/Dockerfile")} \
+          ${abspath("${local.repo_root}/mcp")} >"$build_log" 2>&1; then
+          cat "$build_log"
+          rm -f "$build_log"
+          exit 0
+        fi
+
+        cat "$build_log"
+
+        if ! grep -Eq "ParentResourceNotFound|ResourceNotFound|listBuildSourceUploadUrl|could not be found" "$build_log"; then
+          rm -f "$build_log"
+          exit 1
+        fi
+
+        rm -f "$build_log"
+
+        if [ "$attempt" = "6" ]; then
+          exit 1
+        fi
+
+        sleep 30
+      done
+    EOT
+  }
+
+  depends_on = [azurerm_container_registry.honcho]
+}
+
 resource "terraform_data" "deployment_guards" {
   input = "validate-required-runtime-secrets"
 
@@ -399,6 +476,14 @@ resource "terraform_data" "deployment_guards" {
         || contains(nonsensitive(keys(var.honcho_secret_env)), "LLM_OPENAI_API_KEY")
       )
       error_message = "Set llm_openai_api_key or honcho_secret_env.LLM_OPENAI_API_KEY before applying. Honcho's configured OpenAI-compatible LiteLLM models require this key at startup."
+    }
+
+    precondition {
+      condition = (
+        !var.manage_mcp_dns_records
+        || nonsensitive(var.cloudflare_zone_id) != ""
+      )
+      error_message = "Set cloudflare_zone_id when manage_mcp_dns_records is true."
     }
   }
 }
@@ -516,6 +601,7 @@ resource "azurerm_container_app" "api" {
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
   tags                         = local.tags
 
   identity {
@@ -611,6 +697,7 @@ resource "azurerm_container_app" "deriver" {
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
   tags                         = local.tags
 
   identity {
@@ -667,5 +754,125 @@ resource "azurerm_container_app" "deriver" {
     azurerm_container_app.api,
     azurerm_role_assignment.acr_pull,
     terraform_data.acr_build,
+  ]
+}
+
+resource "azurerm_container_app" "mcp" {
+  name                         = local.mcp_app_name
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  resource_group_name          = azurerm_resource_group.main.name
+  revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
+  tags                         = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.container_apps.id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.honcho.login_server
+    identity = azurerm_user_assigned_identity.container_apps.id
+  }
+
+  ingress {
+    external_enabled           = true
+    target_port                = 8080
+    transport                  = "auto"
+    allow_insecure_connections = false
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = var.mcp_min_replicas
+    max_replicas = var.mcp_max_replicas
+
+    container {
+      name   = local.mcp_app_name
+      image  = local.mcp_image
+      cpu    = var.mcp_cpu
+      memory = var.mcp_memory
+
+      env {
+        name  = "HONCHO_API_URL"
+        value = var.mcp_honcho_api_url
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.acr_pull,
+    terraform_data.mcp_acr_build,
+  ]
+}
+
+resource "azurerm_container_app_custom_domain" "mcp" {
+  count = var.enable_mcp_custom_domain_binding ? 1 : 0
+
+  name             = var.mcp_custom_domain_name
+  container_app_id = azurerm_container_app.mcp.id
+
+  lifecycle {
+    ignore_changes = [
+      certificate_binding_type,
+      container_app_environment_certificate_id
+    ]
+  }
+}
+
+resource "cloudflare_dns_record" "mcp_cname" {
+  count = var.manage_mcp_dns_records ? 1 : 0
+
+  zone_id = var.cloudflare_zone_id
+  name    = var.mcp_custom_domain_name
+  type    = "CNAME"
+  content = azurerm_container_app.mcp.ingress[0].fqdn
+  proxied = false
+  ttl     = 1
+  comment = "Honcho MCP Container Apps custom domain"
+}
+
+resource "cloudflare_dns_record" "mcp_asuid" {
+  count = var.manage_mcp_dns_records ? 1 : 0
+
+  zone_id = var.cloudflare_zone_id
+  name    = "asuid.${var.mcp_custom_domain_name}"
+  type    = "TXT"
+  content = nonsensitive(azurerm_container_app.mcp.custom_domain_verification_id)
+  proxied = false
+  ttl     = 1
+  comment = "Azure Container Apps domain verification for Honcho MCP"
+}
+
+resource "terraform_data" "mcp_custom_domain_bind" {
+  count = var.enable_mcp_custom_domain_binding ? 1 : 0
+
+  triggers_replace = {
+    container_app_name = azurerm_container_app.mcp.name
+    environment_name   = azurerm_container_app_environment.main.name
+    hostname           = var.mcp_custom_domain_name
+    resource_group     = azurerm_resource_group.main.name
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      az containerapp hostname bind \
+        --resource-group ${azurerm_resource_group.main.name} \
+        --name ${azurerm_container_app.mcp.name} \
+        --hostname ${var.mcp_custom_domain_name} \
+        --environment ${azurerm_container_app_environment.main.name} \
+        --validation-method CNAME \
+        --output none
+    EOT
+  }
+
+  depends_on = [
+    azurerm_container_app_custom_domain.mcp,
+    cloudflare_dns_record.mcp_cname,
+    cloudflare_dns_record.mcp_asuid,
   ]
 }

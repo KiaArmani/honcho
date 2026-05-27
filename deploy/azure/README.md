@@ -3,6 +3,7 @@
 This folder provisions a production-oriented Honcho deployment on Azure:
 
 - Azure Container Apps for the API and deriver worker.
+- A separate Azure Container App for the Honcho MCP endpoint.
 - Azure Database for PostgreSQL Flexible Server with private networking and the `vector` extension allowlisted for pgvector.
 - Azure Managed Redis with TLS, public network access disabled, Private Link, and optional high availability.
 - Azure Container Registry with managed-identity pulls and admin access disabled.
@@ -50,6 +51,38 @@ If you already publish an image, set:
 container_image           = "myregistry.azurecr.io/honcho:2026-05-25"
 build_image_with_acr_task = false
 ```
+
+The MCP endpoint is built from `mcp/` into `honcho-mcp:<mcp_image_tag>` and
+deployed as a separate Container App. It proxies to `mcp_honcho_api_url`, which
+defaults to `https://honcho.llm.kia.dev` for this production deployment.
+
+## MCP Custom Domain
+
+The MCP custom domain defaults to `mcp.honcho.llm.kia.dev`. After the first
+apply, get the required DNS records:
+
+```bash
+tofu output mcp_custom_domain_dns_records
+```
+
+Create those records in the public DNS zone, or let this stack manage them in
+Cloudflare by setting:
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+tofu apply \
+  -var manage_mcp_dns_records=true \
+  -var cloudflare_zone_id=...
+```
+
+After DNS has propagated, enable the managed certificate binding:
+
+```bash
+tofu apply -var enable_mcp_custom_domain_binding=true
+```
+
+The custom-domain binding uses Azure Container Apps managed certificates and
+the CNAME validation flow.
 
 ## First Admin Key
 

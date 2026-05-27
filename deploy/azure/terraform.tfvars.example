@@ -18,6 +18,16 @@ location    = "swedencentral"
 # To rebuild the local repo image with the same tag, change this token.
 # image_rebuild_token = "2026-05-25-1"
 
+# The MCP server is deployed as a separate Container App and proxies to the
+# public Honcho API URL. Set the custom-domain binding to true only after the
+# DNS records from mcp_custom_domain_dns_records have propagated.
+# mcp_image_tag                    = "latest"
+# mcp_honcho_api_url               = "https://honcho.llm.kia.dev"
+# mcp_custom_domain_name           = "mcp.honcho.llm.kia.dev"
+# enable_mcp_custom_domain_binding = false
+# manage_mcp_dns_records           = false
+# cloudflare_zone_id               = "..."
+
 # Cost/resilience defaults:
 # - Container Apps consumption keeps compute cost low.
 # - PostgreSQL uses B1ms to keep baseline cost low; switch to General Purpose

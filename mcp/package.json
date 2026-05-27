@@ -4,12 +4,15 @@
   "description": "Honcho MCP Server — Cloudflare Worker",
   "main": "src/index.ts",
   "packageManager": "bun@1.2.0",
+  "type": "module",
   "engines": {
     "node": ">=18.0.0",
     "bun": ">=1.2.0"
   },
   "scripts": {
     "preinstall": "node -e \"const ua=process.env.npm_config_user_agent||'';if(ua.includes('npm')&&!ua.includes('bun')){console.error('❌ Please use bun instead of npm!\\n📦 Run: bun install\\n🌐 Install bun: https://bun.sh/');process.exit(1)}\"",
+    "start": "bun run src/node.ts",
+    "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:staging": "wrangler deploy --env staging"

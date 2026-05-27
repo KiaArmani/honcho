@@ -81,6 +81,30 @@ variable "image_rebuild_token" {
   default     = ""
 }
 
+variable "mcp_container_image" {
+  description = "Prebuilt Honcho MCP image. Leave null to build and use this deployment's ACR image name."
+  type        = string
+  default     = null
+}
+
+variable "mcp_image_tag" {
+  description = "Image tag used when building/pushing the Honcho MCP image to the managed ACR."
+  type        = string
+  default     = "latest"
+}
+
+variable "build_mcp_image_with_acr_task" {
+  description = "Build the local mcp/ package into ACR during tofu apply using az acr build."
+  type        = bool
+  default     = true
+}
+
+variable "mcp_image_rebuild_token" {
+  description = "Change this value to force the MCP az acr build step to run again."
+  type        = string
+  default     = ""
+}
+
 variable "acr_sku" {
   description = "ACR SKU. Basic is cheapest and works with managed identity pulls; Premium is required for private endpoints."
   type        = string
@@ -156,6 +180,66 @@ variable "deriver_memory" {
   description = "Deriver container memory."
   type        = string
   default     = "1Gi"
+}
+
+variable "mcp_min_replicas" {
+  description = "Minimum MCP replicas. Keep 0 for low-cost scale-to-zero."
+  type        = number
+  default     = 0
+}
+
+variable "mcp_max_replicas" {
+  description = "Maximum MCP replicas."
+  type        = number
+  default     = 2
+}
+
+variable "mcp_cpu" {
+  description = "MCP container CPU cores."
+  type        = number
+  default     = 0.25
+}
+
+variable "mcp_memory" {
+  description = "MCP container memory."
+  type        = string
+  default     = "0.5Gi"
+}
+
+variable "mcp_honcho_api_url" {
+  description = "Raw Honcho API URL that the MCP server proxies to."
+  type        = string
+  default     = "https://honcho.llm.kia.dev"
+
+  validation {
+    condition     = can(regex("^https://", var.mcp_honcho_api_url))
+    error_message = "mcp_honcho_api_url must be an https:// URL."
+  }
+}
+
+variable "mcp_custom_domain_name" {
+  description = "Custom domain to bind to the MCP Container App after DNS validation records are in place."
+  type        = string
+  default     = "mcp.honcho.llm.kia.dev"
+}
+
+variable "enable_mcp_custom_domain_binding" {
+  description = "Set true only after the MCP CNAME and TXT validation records have propagated."
+  type        = bool
+  default     = false
+}
+
+variable "manage_mcp_dns_records" {
+  description = "When true, create the MCP custom-domain CNAME and TXT records in Cloudflare DNS."
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID for the public DNS zone that contains mcp_custom_domain_name. Required when manage_mcp_dns_records is true."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "postgres_version" {
